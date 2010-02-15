@@ -1,6 +1,11 @@
 Scrawl
-By: maryrosecook
 http://maryrosecook.com
 maryrosecook@maryrosecook.com
 
 A sickeningly simple crawler.  Built as I learn Clojure.
+
+
+Instructions:
+
+1. Make sure you have clojure.jar and clojure-contrib.jar in your path.
+2. java -cp clojure.jar:clojure-contrib.jar clojure.main main.clj
