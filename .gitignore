@@ -2,3 +2,5 @@ clojure-contrib
 clojure-contrib.jar
 clojure.jar
 jline.jar
+scrawl.tmproj
+output.txt
