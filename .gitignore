@@ -3,4 +3,6 @@ clojure-contrib.jar
 clojure.jar
 jline.jar
 scrawl.tmproj
-output.txt
+urls-to-crawl.txt
+urls-saved.txt
+urls-crawled.txt
