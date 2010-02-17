@@ -31,11 +31,11 @@
 	
 (defn crawl [urls-crawled urls-to-crawl urls-saved]
 	(def next-url (first urls-to-crawl))
-	(println (count urls-saved) " " next-url)
+	(println (count urls-saved) " " next-url) ; print out next url to crawl and number of mp3s found
 	(def all-linked-urls (seq (into #{} (parse-urls-from next-url)))) ; unique urls on page
 	(def next-urls-crawled (cons next-url urls-crawled))
 	(def latest-urls-to-save (remove-dupes-unwanted #(re-matches #"http://.+?\.mp3.*" %) all-linked-urls urls-saved))
-	(ds/append-spit "output.txt" (println-str latest-urls-to-save))
+	(ds/append-spit "output.txt" (println-str latest-urls-to-save)) ; output mp3 urls from url just crawled
 	(def next-urls-saved (concat urls-saved latest-urls-to-save))
 	(def latest-urls-to-crawl (remove-dupes-unwanted #(crawlable-url %) all-linked-urls urls-crawled))
 	(def next-urls-to-crawl (concat (rest urls-to-crawl) latest-urls-to-crawl))
