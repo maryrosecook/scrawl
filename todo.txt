@@ -1,0 +1,3 @@
+- Start building up list of unfruitful URLs (e.g. myspace.com)
+- Buffer file outputs to string before writing.
+- Fork off processes to request pages in parallel?

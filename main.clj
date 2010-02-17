@@ -29,6 +29,7 @@
 		(re-matches #"(?i).*?\.mp3$" url) false
 		(re-matches #"(?i).*?\.cgi$" url) false
 		(re-matches #"(?i).*?\.exe$" url) false
+		(re-matches #"(?i).*?\.gz$" url) false
 		(re-matches #"(?i).*?\.swf$" url) false
 		(re-matches #"(?i).*?\.dmg$" url) false
 		(re-matches #"(?i).*?\.dtd$" url) false
@@ -61,7 +62,7 @@
 
 	(def all-linked-urls (seq (into #{} (parse-urls-from next-url)))) ; unique urls on page
 	(def next-urls-crawled (cons next-url urls-crawled))
-	(def latest-urls-to-save (remove-dupes-unwanted #(re-matches #"http://.+?\.mp3.*" %) all-linked-urls urls-saved))
+	(def latest-urls-to-save (remove-dupes-unwanted #(re-matches #"http://.+?\.mp3$" %) all-linked-urls urls-saved))
 	(seq-to-file latest-urls-to-save urls-saved-filename false) ; output mp3 urls from url just crawled
 
 	(def next-urls-saved (concat urls-saved latest-urls-to-save))
