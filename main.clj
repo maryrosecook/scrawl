@@ -7,24 +7,24 @@
 (def urls-crawled-filename "urls-crawled.txt")
 (def urls-to-crawl-filename "urls-to-crawl.txt")
 (def urls-saved-filename "urls-saved.txt")
+(def batch-size 20)
 
 ; note that the Java method fails sometimes, in which case it returns the while URL and so we return ""
 (defn get-host [url]
 	(def host (. (new java.net.URL url) getHost ))
-	(if (re-matches #"http" host)
+	(if (re-matches #"$http" host)
 		""
 		host))
 
-; extracts all url on page at start-url
-(defn parse-urls-from [start-url]
-	(def agnt (http/http-agent start-url :method "GET"))
-	(def html (http/string agnt))
-	(re-seq #"http://[^\"' \t\n\r]+" html))
+; fires an agent off to grab html at url
+(defn request-url [url]
+	(http/http-agent url :handler #(duck-streams/slurp* (http/stream %))))
 
 ; returns true if url is crawlable
 (defn crawlable? [url]
 	(cond 
-		(re-matches #"(?i).*?\.css$" url) false 
+		(re-matches #"(?i).*?\.css$" url) false
+		(re-matches #"(?i).*?\.js$" url) false
 		(re-matches #"(?i).*?\.gif$" url) false
 		(re-matches #"(?i).*?\.jpg$" url) false
 		(re-matches #"(?i).*?\.jpeg$" url) false
@@ -58,8 +58,10 @@
 
 ; adds strings in seq to filename, one per line
 (defn seq-to-file [seq filename remove-old]
-	(if (= true remove-old) (java-utils/delete-file filename true)) ; delete file first, if requested
-	(duck-streams/append-spit filename (println-str (str-utils/str-join "\n" seq))))
+	(if (= true remove-old)
+		(java-utils/delete-file filename true)) ; delete file first, if requested
+	(if-not (empty? seq)
+		(duck-streams/append-spit filename (println-str (str-utils/str-join "\n" seq)))))
 
 ; returns list of lines in file.  If file doesn't exist, returns empty list.
 (defn read-seq-from-file [filename]
@@ -82,30 +84,70 @@
 		host-scores))
 
 ; removes items in already-got from seq and filters results based on f
-(defn remove-dupes-unwanted [f seq already-got]
+(defn remove-dupes-and-unwanted [f seq already-got]
 	(def unique-seq (remove #(.contains already-got %) seq))
 	(filter f unique-seq))
 
-; Saves first url in urls-to-crawl to urls-crawled, then gets urls on page and removes dupes and urls to not crawl.
-; Adds remainder to urls-to-crawl and mp3 urls to urls-saved.  Writes latest mp3 urls and urls-crawled to file.
-; And so it goes, and so it goes.
-(defn scrawl [urls-crawled urls-to-crawl urls-saved host-scores]
-	(def next-url (first urls-to-crawl))
-	(println (get host-scores (get-host next-url)) " " next-url) ; print out next url to crawl and number of mp3s found
-	(seq-to-file (list next-url) urls-crawled-filename false) ; output mp3 urls from url just crawled
-
-	(def all-linked-urls (seq (into #{} (parse-urls-from next-url)))) ; unique urls on page
-	(def next-urls-crawled (cons next-url urls-crawled))
-	(def latest-urls-to-save (remove-dupes-unwanted #(mp3? %) all-linked-urls urls-saved))
-	(def next-host-scores (update-host-scores next-url (count latest-urls-to-save) host-scores))
+(defn save-data [next-url latest-urls-to-save next-urls-to-crawl]
+	(seq-to-file (list next-url) urls-crawled-filename false) ; output mp3 urls from url just crawled	
 	(seq-to-file latest-urls-to-save urls-saved-filename false) ; output mp3 urls from url just crawled
+	(seq-to-file next-urls-to-crawl urls-to-crawl-filename true))
 
-	(def next-urls-saved (concat urls-saved latest-urls-to-save))
-	(def latest-urls-to-crawl (remove-dupes-unwanted #(crawl? % host-scores) all-linked-urls urls-crawled))
-	(def next-urls-to-crawl (concat (rest urls-to-crawl) latest-urls-to-crawl))
-	(seq-to-file next-urls-to-crawl urls-to-crawl-filename true)
-	
-	(scrawl next-urls-crawled next-urls-to-crawl next-urls-saved next-host-scores))
+; crawls a small batch of urls in parallel and returns agents that will yield the html results
+(defn crawl-batch-of-urls [urls-to-crawl]
+	(def url-crawl-agents (map #(request-url %) urls-to-crawl))
+	(apply await-for 10000 url-crawl-agents) ; wait for the bastard agents to finish their crawling
+	url-crawl-agents)
+
+; gets html result from agent and parses all urls from it
+(defn get-unique-linked-urls [url-crawl-agent]
+	(def html (http/result url-crawl-agent))
+	(re-seq #"http://[^;\"' \t\n\r]+" html))
+
+; If no more un-processed url-crawl-agents,
+;		Make 20 more, one for each of the next 20 urls-to-crawl.
+;		Recall scrawl with new agents.
+;	else
+;		Get next url agent.
+; 	If failed
+;			Drop failed agent and recall scrawl.
+;		else
+; 		Save url crawled to urls-crawled, get urls in html at crawled url, remove dupes and urls to not crawl.
+; 		Add remainder to urls-to-crawl and mp3 urls to urls-saved.
+; 		Write latest mp3 urls and urls-crawled to file.
+;			Recall scrawl.
+; And so it goes, and so it goes.
+(defn scrawl [url-crawl-agents urls-crawled urls-to-crawl urls-saved host-scores]
+	(if (empty? url-crawl-agents)
+		; empty, so crawl a new batch of urls and recall scrawl
+		(let [batch-to-crawl (take batch-size urls-to-crawl)]
+			(def next-url-crawl-agents (crawl-batch-of-urls batch-to-crawl))
+			(def next-urls-to-crawl (drop batch-size urls-to-crawl))
+			(scrawl next-url-crawl-agents urls-crawled next-urls-to-crawl urls-saved host-scores))
+		; not empty, so get next agent and extract data from it
+		(let [next-url-crawl-agent (first url-crawl-agents)]
+			(if (agent-error next-url-crawl-agent) 
+				; agent failed - move to next
+				(scrawl (rest url-crawl-agents) urls-crawled urls-to-crawl urls-saved host-scores) 
+				; agent succeeded
+				(let [next-url (http/request-uri next-url-crawl-agent)] ; agent succeeded
+					(def next-url (http/request-uri next-url-crawl-agent)) ; get url that was crawled
+					(def all-linked-urls (seq (into #{} (get-unique-linked-urls next-url-crawl-agent))))
+					
+					(println (get host-scores (get-host next-url)) " " next-url) ; print out next url to crawl and number of mp3s found
+
+					(def next-urls-crawled (cons next-url urls-crawled))
+					(def latest-urls-to-save (remove-dupes-and-unwanted #(mp3? %) all-linked-urls urls-saved))
+					(def next-host-scores (update-host-scores next-url (count latest-urls-to-save) host-scores))
+
+					(def next-urls-saved (concat urls-saved latest-urls-to-save))
+					(def latest-urls-to-crawl (remove-dupes-and-unwanted #(crawl? % host-scores) all-linked-urls urls-crawled))
+					(def next-urls-to-crawl (concat urls-to-crawl latest-urls-to-crawl))
+
+					(save-data next-url latest-urls-to-save next-urls-to-crawl) ; save key seqs to disk
+					(scrawl (rest url-crawl-agents) next-urls-crawled next-urls-to-crawl next-urls-saved next-host-scores))))))
+;;;;;;;;;
+
 
 
 
@@ -122,5 +164,4 @@
 (def crawled-host-scores (gen-host-scores urls-crawled -1 (hash-map)))
 (def host-scores (gen-host-scores urls-saved 1 crawled-host-scores))
 
-(scrawl urls-crawled urls-to-crawl urls-saved host-scores) ; begin
-(shutdown-agents)
+(scrawl () urls-crawled urls-to-crawl urls-saved host-scores) ; begin

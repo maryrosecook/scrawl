@@ -1,6 +1,5 @@
-- Fork off processes to request pages in parallel?
-
 done
 - Start building up list of unfruitful URLs (e.g. myspace.com)
 - Stop crawling unfruitful URLs
 - Buffer file output to string before writing
+- Request pages in parallel
