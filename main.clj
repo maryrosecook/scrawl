@@ -100,8 +100,15 @@
 
 ; gets html result from agent and parses all urls from it
 (defn get-unique-linked-urls [url-crawl-agent]
-	(def html (http/result url-crawl-agent))
+	(def html (http/result url-crawl-agent ))
 	(re-seq #"http://[^;\"' \t\n\r]+" html))
+
+; returns true if nil or error code response from url
+(defn failed-agent [url-crawl-agnt]
+	(cond
+		(not (http/status url-crawl-agnt)) true
+		(http/error? url-crawl-agnt) true
+		#(true) false))
 
 ; If no more un-processed url-crawl-agents,
 ;		Make 50 more, one for each of the next 50 urls-to-crawl.
@@ -125,11 +132,11 @@
 			(scrawl next-url-crawl-agents urls-crawled next-urls-to-crawl host-scores))
 		; not empty, so get next agent and extract data from it
 		(let [next-url-crawl-agent (first url-crawl-agents)]
-			(if (agent-error next-url-crawl-agent) 
+			(if (failed-agent next-url-crawl-agent) 
 				; agent failed - move to next
 				(scrawl (rest url-crawl-agents) urls-crawled urls-to-crawl host-scores)
 				; agent succeeded
-				(let [next-url (http/request-uri next-url-crawl-agent)] 
+				(let [next-url (http/request-uri next-url-crawl-agent)]
 					(def next-url (http/request-uri next-url-crawl-agent)) ; get url that was crawled
 					(def all-linked-urls (seq (into #{} (get-unique-linked-urls next-url-crawl-agent))))
 					
